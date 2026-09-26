@@ -1,0 +1,360 @@
+generator client {
+  provider = "prisma-client"
+  // output   = "../generated/prisma"
+  output   = "../src/generated/prisma"
+  // moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String     @id @default(uuid())
+  role          Role       @default(STUDENT)
+  name          String
+  email         String     @unique
+  password      String? // Needed by Better Auth
+  emailVerified Boolean    @default(false)
+  image         String?
+  status        UserStatus @default(ACTIVE)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  sessions Session[]
+  accounts Account[]
+
+  tutorProfile  TutorProfile?
+  bookings      Booking[]
+  reviews       Review[]
+  submissions   Submission[]
+  notifications Notification[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(uuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@map("verification")
+}
+
+enum Role {
+  STUDENT
+  TUTOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BANNED
+}
+
+model TutorProfile {
+  id            String  @id @default(uuid())
+  display_name  String
+  bio           String
+  qualification String
+  hourly_rate   Float   @default(0)
+  rating_avg    Float   @default(0)
+  total_reviews Int     @default(0)
+  is_verified   Boolean @default(false)
+
+  // Cached AI summary of this tutor's reviews. Regenerated off the request
+  // path by the cron pass, never on a page view. `review_summary_count`
+  // records how many reviews the cached text was built from, so we can tell
+  // a stale summary from a current one without re-reading the reviews.
+  review_summary       String?   @db.Text
+  review_summary_count Int       @default(0)
+  review_summary_at    DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user_id              String    @unique
+
+  user         User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  courseSlots  CourseSlot[]
+  bookings     Booking[]
+  reviews      Review[]
+  courses      Course[]
+  assignments  Assignment[]
+  practiceSets PracticeSet[]
+
+  @@map("tutorprofiles")
+}
+
+model Course {
+  id          String       @id @default(uuid())
+  name        String
+  tutor_id    String
+  description String       @db.Text
+  status      CourseStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tutor         TutorProfile     @relation(fields: [tutor_id], references: [id], onDelete: Cascade)
+  courseSlots   CourseSlot[]
+  assignments   Assignment[]
+  materials     CourseMaterial[]
+  announcements Announcement[]
+  practiceSets  PracticeSet[]
+
+  @@map("courses")
+}
+
+enum CourseStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SessionType {
+  ONE_ON_ONE
+  GROUP
+}
+
+model CourseSlot {
+  id           String      @id @default(uuid())
+  name         String
+  description  String?     @db.Text
+  start_time   DateTime
+  end_time     DateTime
+  date         DateTime
+  meeting_link String?
+  session_type SessionType @default(ONE_ON_ONE)
+  capacity     Int         @default(1)
+  tutor_id     String
+  course_id    String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  tutor    TutorProfile @relation(fields: [tutor_id], references: [id], onDelete: Cascade)
+  course   Course       @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@index([tutor_id])
+  @@map("course_slots")
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  student_id     String
+  tutor_id       String
+  course_slot_id String
+  booking_status BookingStatus @default(PENDING)
+  payment_status PaymentStatus @default(UNPAID)
+  /// The Stripe Checkout Session id (cs_...). Note this is NOT a PaymentIntent,
+  /// so a refund resolves the intent from this session rather than using it
+  /// directly.
+  transaction_id String?       @unique
+
+  /// Stripe refund id, set when a paid booking is cancelled with a refund.
+  /// Its presence is the record that money actually went back.
+  refund_id    String?
+  cancelled_at DateTime?
+
+  total_price   Float    @default(0)
+  reminder_sent Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  student    User         @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  tutor      TutorProfile @relation(fields: [tutor_id], references: [id], onDelete: Cascade)
+  courseSlot CourseSlot   @relation(fields: [course_slot_id], references: [id], onDelete: Cascade)
+  review     Review?
+
+  @@index([student_id])
+  @@index([tutor_id])
+  @@map("bookings")
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Review {
+  id         String       @id @default(uuid())
+  booking_id String       @unique
+  tutor_id   String
+  student_id String
+  rating     Int // 1-5 stars
+  comment    String?      @db.Text
+  status     ReviewStatus @default(APPROVED)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  booking Booking      @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  tutor   TutorProfile @relation(fields: [tutor_id], references: [id], onDelete: Cascade)
+  student User         @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@map("reviews")
+}
+
+enum ReviewStatus {
+  APPROVED
+  REJECTED
+}
+
+model Assignment {
+  id            String    @id @default(uuid())
+  title         String
+  description   String    @db.Text
+  due_date      DateTime?
+  reminder_sent Boolean   @default(false)
+  course_id     String
+  tutor_id      String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  course      Course       @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  tutor       TutorProfile @relation(fields: [tutor_id], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@index([course_id])
+  @@index([tutor_id])
+  @@map("assignments")
+}
+
+model Submission {
+  id            String           @id @default(uuid())
+  assignment_id String
+  student_id    String
+  file_url      String
+  note          String?          @db.Text
+  grade         Int?
+  feedback      String?          @db.Text
+  status        SubmissionStatus @default(SUBMITTED)
+  submittedAt   DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  assignment Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  student    User       @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([assignment_id, student_id])
+  @@index([student_id])
+  @@map("submissions")
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  GRADED
+}
+
+model CourseMaterial {
+  id        String   @id @default(uuid())
+  title     String
+  file_url  String
+  course_id String
+  tutor_id  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course       Course        @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  practiceSets PracticeSet[]
+
+  @@index([course_id])
+  @@map("course_materials")
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  message   String   @db.Text
+  course_id String
+  tutor_id  String
+  createdAt DateTime @default(now())
+
+  course Course @relation(fields: [course_id], references: [id], onDelete: Cascade)
+
+  @@index([course_id])
+  @@map("announcements")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  user_id   String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("notifications")
+}
+
+model PracticeSet {
+  id    String @id @default(uuid())
+  title String
+
+  /// [{ question, options[], answer, explanation }] - generated by the model,
+  /// then editable by the tutor. Stored as JSON because the shape is fixed and
+  /// only ever read as a whole set; normalising it into a questions table would
+  /// buy nothing here.
+  questions Json
+
+  /// Students only ever see published sets. A generated set starts unpublished
+  /// so nothing reaches a student that the tutor has not read and approved.
+  is_published Boolean @default(false)
+
+  course_id   String
+  material_id String?
+  tutor_id    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course   Course          @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  material CourseMaterial? @relation(fields: [material_id], references: [id], onDelete: SetNull)
+  tutor    TutorProfile    @relation(fields: [tutor_id], references: [id], onDelete: Cascade)
+
+  @@index([course_id])
+  @@index([tutor_id])
+  @@map("practice_sets")
+}

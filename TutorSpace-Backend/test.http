@@ -1,0 +1,155 @@
+# REST Client API Tests
+# Prerequisite: Install the "REST Client" extension in VS Code.
+# Click "Send Request" above any URL to execute it!
+
+@baseUrl = http://localhost:5000/api/v1
+@email = fahimatbd@gmail.com
+@password = password123
+
+
+### ============================
+### AUTHENTICATION (Better Auth)
+### ============================
+
+# 1. Sign Up (Student)
+POST {{baseUrl}}/auth/sign-up/email
+Content-Type: application/json
+
+{
+    "email": "{{email}}",
+    "password": "{{password}}",
+    "name": "Jane Doe",
+    "role": "STUDENT",
+    "status": "ACTIVE"
+}
+
+### 
+
+# 2. Sign Up (Tutor)
+POST {{baseUrl}}/auth/sign-up/email
+Content-Type: application/json
+
+{
+    "email": "tutor@test.com",
+    "password": "{{password}}",
+    "name": "Prof. Smith",
+    "role": "TUTOR",
+    "status": "ACTIVE"
+}
+
+### 
+
+# 2. Sign In
+# (Note: Better Auth automatically sets the cookie in your REST Client/Postman invisibly!)
+POST {{baseUrl}}/auth/sign-in/email
+Content-Type: application/json
+
+{
+    "email": "fahimatbd@gmail.com",
+    "password": "password123"
+}
+
+###
+
+# 3. Get Session
+GET {{baseUrl}}/auth/get-session
+Content-Type: application/json
+
+###
+
+# 4. Google Social Login (Test Redirect in Browser!)
+# Note: Hit this in your BROWSER, not Thunder Client!
+# URL: http://localhost:5000/api/v1/auth/sign-in/social?provider=google&callbackURL=http://localhost:3000
+
+###
+
+# 5. Request Password Reset (Trigger Email)
+POST {{baseUrl}}/auth/request-password-reset
+Content-Type: application/json
+
+{
+    "email": "fahimatbd@gmail.com",
+    "redirectTo": "http://localhost:3000/reset-password"
+}
+
+###
+
+# 5. Reset Password (Use token from email)
+POST {{baseUrl}}/auth/reset-password
+Content-Type: application/json
+
+{
+    "newPassword": "password12345",
+    "token": "scpvUD8LrmjqJzxvdgJ7UKlc"
+}
+
+### ============================
+### TUTORS
+### ============================
+
+# 4. Create Tutor Profile (MUST BE SIGNED IN AS TUTOR)
+POST {{baseUrl}}/tutors
+Content-Type: application/json
+
+{
+    "display_name": "Prof. Smith",
+    "bio": "Expert in Mathematics",
+    "qualification": "PhD",
+    "email": "{{email}}",
+    "hourly_rate": 25.50
+}
+
+###
+
+# 5. Search Tutors (Filters available!)
+GET {{baseUrl}}/tutors?minPrice=10&maxPrice=50&course=Math
+
+### ============================
+### COURSES & SLOTS
+### ============================
+
+# 6. Create Course
+POST {{baseUrl}}/courses
+Content-Type: application/json
+
+{
+    "name": "Advanced Math",
+    "description": "Calculus and Algebra"
+}
+
+###
+
+# 7. Create Slot
+POST {{baseUrl}}/slots
+Content-Type: application/json
+
+{
+    "name": "Morning Math Session",
+    "date": "2026-04-01T09:00:00.000Z",
+    "start_time": "2026-04-01T09:00:00.000Z",
+    "end_time": "2026-04-01T10:30:00.000Z",
+    "course_id": "2637f91d-a7d8-4213-a4ed-8d5ab0b01f5d"
+}
+
+### ============================
+### BOOKINGS & PAYMENTS
+### ============================
+
+# 8. Create a Booking (Student)
+POST {{baseUrl}}/booking
+Content-Type: application/json
+
+{
+    "tutor_id": "da402056-47f5-478f-96df-dca6498dfac7",
+    "course_slot_id": "92b19edd-d2d2-4346-8970-b4285579ef53"
+}
+
+###
+
+# 9. Get Student Checkout Session URL
+POST {{baseUrl}}/payments/create-checkout-session
+Content-Type: application/json
+
+{
+    "bookingId": "4077f24a-27cc-4f23-8173-c1a8972c987f"
+}
