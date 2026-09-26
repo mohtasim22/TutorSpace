@@ -9,9 +9,9 @@
     "seed:data": "npx tsx src/seed/seedDummyData.ts",
     "rates:bdt": "npx tsx src/seed/convertRatesToBdt.ts",
     "dev": "tsx watch src/server.ts",
-    "build": "tsup src/server.ts --format esm --out-dir dist --no-splitting",
+    "build": "tsup src/server.ts --format esm --out-dir deploy --no-splitting",
     "stripe:webhook": "stripe listen --forward-to localhost:5000/api/v1/payments/webhook",
-    "start": "node dist/server.js"
+    "start": "node deploy/server.js"
   },
   "type": "module",
   "keywords": [],
