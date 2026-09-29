@@ -29,6 +29,7 @@ model User {
   reviews       Review[]
   submissions   Submission[]
   notifications Notification[]
+  practiceSets  PracticeSet[]
 
   @@index([status])
   @@map("users")
@@ -98,17 +99,9 @@ model TutorProfile {
   rating_avg    Float   @default(0)
   total_reviews Int     @default(0)
   is_verified   Boolean @default(false)
-
-  // Cached AI summary of this tutor's reviews. Regenerated off the request
-  // path by the cron pass, never on a page view. `review_summary_count`
-  // records how many reviews the cached text was built from, so we can tell
-  // a stale summary from a current one without re-reading the reviews.
-  review_summary       String?   @db.Text
-  review_summary_count Int       @default(0)
-  review_summary_at    DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  user_id              String    @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user_id       String   @unique
 
   user         User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
   courseSlots  CourseSlot[]
@@ -293,6 +286,14 @@ model CourseMaterial {
   file_url  String
   course_id String
   tutor_id  String
+
+  /// AI summary of this material: { overview, key_points[], key_terms[] }.
+  /// Generated once, on first request, and shared by everyone in the course,
+  /// so every student reads the same summary and the model is called once per
+  /// material rather than once per student. The tutor can regenerate it.
+  summary    Json?
+  summary_at DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -340,9 +341,15 @@ model PracticeSet {
   /// buy nothing here.
   questions Json
 
-  /// Students only ever see published sets. A generated set starts unpublished
-  /// so nothing reaches a student that the tutor has not read and approved.
+  /// Only meaningful for a tutor's set: other students in the course see it
+  /// once the tutor has read and published it. A student's own quiz is never
+  /// published — it is visible to that student alone.
   is_published Boolean @default(false)
+
+  /// Set when a STUDENT generated this quiz for their own revision. Null for a
+  /// set the tutor generated for the whole course. `tutor_id` is filled in
+  /// either way (the course's tutor), so a tutor's view can tell the two apart.
+  student_id String?
 
   course_id   String
   material_id String?
@@ -353,8 +360,10 @@ model PracticeSet {
   course   Course          @relation(fields: [course_id], references: [id], onDelete: Cascade)
   material CourseMaterial? @relation(fields: [material_id], references: [id], onDelete: SetNull)
   tutor    TutorProfile    @relation(fields: [tutor_id], references: [id], onDelete: Cascade)
+  student  User?           @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
   @@index([course_id])
   @@index([tutor_id])
+  @@index([student_id])
   @@map("practice_sets")
 }

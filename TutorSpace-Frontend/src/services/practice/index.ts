@@ -12,8 +12,8 @@ const getCookieHeader = async () => {
 }
 
 /**
- * Generate a DRAFT practice set from a material. The API stores it
- * unpublished — students see nothing until the tutor publishes it.
+ * Generate a practice quiz from a PDF material. For a student the quiz is
+ * private to them; for a tutor it is stored as an unpublished course draft.
  */
 export const generatePracticeSet = async (materialId: string) => {
   const cookieHeader = await getCookieHeader()

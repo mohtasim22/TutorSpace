@@ -6,20 +6,24 @@ import { prisma } from "../../lib/prisma";
 import { pick } from "../../lib/pick";
 import { anthropic, aiConfigured, MODEL } from "../../lib/anthropic";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { pdfSourceBlock, resolveMaterialAccess } from "../../lib/materialAccess";
 
 /**
- * Practice questions generated from a course material.
+ * Practice quizzes generated from a course material (PDF).
  *
- * The central rule is that a generated set is NOT published. The tutor reads
- * it, edits whatever is wrong, and publishes it deliberately; students only
- * ever see published sets. The model drafts, the tutor decides — nothing
- * generated reaches a student unread.
+ * Two kinds of set come out of the same generator:
+ *
+ * - A STUDENT generates a quiz for their own revision. It is private to them
+ *   and is labelled in the UI as AI-generated and not reviewed by the tutor.
+ * - A TUTOR generates a set for the whole course. It starts unpublished; the
+ *   tutor reads and edits it, then publishes it to every student in the course.
+ *
+ * In both cases the model is told to use the supplied PDF alone, and every
+ * answer carries an explanation drawn from it, so a student can check the
+ * answer against the source rather than trusting it.
  */
 
-/** Largest material we will send. Keeps us well inside the request limit. */
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
-
-/** Per-tutor ceiling on generations per hour. */
+/** Per-user ceiling on generations per hour. */
 const HOURLY_GENERATION_LIMIT = 10;
 
 const QUESTION_COUNT = 8;
@@ -40,118 +44,55 @@ const PracticeSetSchema = z.object({
 
 export type PracticeQuestion = z.infer<typeof QuestionSchema>;
 
-const SYSTEM = `You write practice questions from a tutor's own course material, for their students to revise with.
+const SYSTEM = `You write practice quiz questions from a tutor's course material, for students to revise with.
 
 Rules:
 - Every question must be answerable from the supplied material alone. Do not draw on outside knowledge.
 - Cover different parts of the material rather than clustering on one section.
 - Mix recall and application. Questions that only ask for a definition make weak practice.
-- For "mcq", give exactly four options, with exactly one correct. Wrong options must be plausible, not filler.
+- Prefer "mcq". For "mcq", give exactly four options, with exactly one correct, and make "answer" the exact text of the correct option. Wrong options must be plausible, not filler.
 - For "short_answer", leave options empty and make the expected answer specific enough to mark.
-- The explanation says why the answer is right, in one or two sentences, grounded in the material.
+- The explanation says why the answer is right, in one or two sentences, and points to where in the material it comes from.
 - If the material is too short or too thin to support ${QUESTION_COUNT} good questions, return fewer rather than padding.`;
 
-const getTutorProfileOrThrow = async (userId: string) => {
-  const tutorProfile = await prisma.tutorProfile.findUnique({
-    where: { user_id: userId },
-  });
-  if (!tutorProfile) throw new Error("Tutor profile not found");
-  return tutorProfile;
-};
+const setInclude = {
+  course: { select: { name: true } },
+  material: { select: { title: true } },
+} as const;
 
 /**
- * Fetch the material and turn it into a content block Claude can read.
+ * Generate a quiz from one PDF material.
  *
- * Materials live on Cloudinary, so the server downloads the file rather than
- * passing a URL through — that also lets us enforce a size ceiling before
- * anything is sent.
- */
-const buildSourceBlock = async (fileUrl: string, title: string) => {
-  const res = await fetch(fileUrl);
-  if (!res.ok) throw new Error("Could not download the material file");
-
-  const contentType = (res.headers.get("content-type") || "").split(";")[0]!.trim();
-  const buffer = Buffer.from(await res.arrayBuffer());
-
-  if (buffer.byteLength > MAX_FILE_BYTES) {
-    throw new Error(
-      `This material is too large to generate from (limit ${MAX_FILE_BYTES / 1024 / 1024}MB)`,
-    );
-  }
-
-  if (contentType === "application/pdf" || fileUrl.toLowerCase().endsWith(".pdf")) {
-    return {
-      type: "document" as const,
-      source: {
-        type: "base64" as const,
-        media_type: "application/pdf" as const,
-        data: buffer.toString("base64"),
-      },
-      title,
-    };
-  }
-
-  const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
-  type ImageType = (typeof IMAGE_TYPES)[number];
-  if (IMAGE_TYPES.includes(contentType as ImageType)) {
-    return {
-      type: "image" as const,
-      source: {
-        type: "base64" as const,
-        media_type: contentType as ImageType,
-        data: buffer.toString("base64"),
-      },
-    };
-  }
-
-  if (contentType.startsWith("text/") || /\.(txt|md|csv)$/i.test(fileUrl)) {
-    return { type: "text" as const, text: buffer.toString("utf-8").slice(0, 200_000) };
-  }
-
-  throw new Error(
-    "Practice questions can only be generated from a PDF, an image, or a text file",
-  );
-};
-
-/**
- * Generate a draft set from one of the tutor's own materials and store it
- * unpublished.
+ * Checks run in a fixed order: access first, so an unauthorised caller learns
+ * nothing about the server; then configuration; then the rate limit; and only
+ * then the download and the paid model call.
  */
 const generateFromMaterial = async (materialId: string, userId: string) => {
-  const tutorProfile = await getTutorProfileOrThrow(userId);
+  const { material, role } = await resolveMaterialAccess(materialId, userId);
+  if (role === "ADMIN") throw new Error("Only students and tutors can generate quizzes");
 
-  const material = await prisma.courseMaterial.findUnique({
-    where: { id: materialId },
-    include: { course: { select: { id: true, tutor_id: true, name: true } } },
-  });
-  if (!material) throw new Error("Material not found");
-  if (material.course.tutor_id !== tutorProfile.id) {
-    throw new Error("Forbidden! You can only generate from your own materials");
-  }
-
-  // After the ownership check, so an unauthorised caller is refused without
-  // being told anything about how the server is configured — but before the
-  // file download below, so a missing key doesn't cost a wasted transfer.
   if (!aiConfigured()) {
     throw new Error("AI features are not configured (missing ANTHROPIC_API_KEY)");
   }
 
+  const isStudent = role === "STUDENT";
+
   // Rate limit by counting rows rather than holding state in memory: the API
   // runs serverless, so one process's counter says nothing about the next
   // invocation's. A query is the only limiter that actually holds there.
+  const since = new Date(Date.now() - 60 * 60 * 1000);
   const recent = await prisma.practiceSet.count({
-    where: {
-      tutor_id: tutorProfile.id,
-      createdAt: { gt: new Date(Date.now() - 60 * 60 * 1000) },
-    },
+    where: isStudent
+      ? { student_id: userId, createdAt: { gt: since } }
+      : { tutor_id: material.course.tutor_id, student_id: null, createdAt: { gt: since } },
   });
   if (recent >= HOURLY_GENERATION_LIMIT) {
     throw new Error(
-      `You have reached the limit of ${HOURLY_GENERATION_LIMIT} generations per hour. Try again later.`,
+      `You have reached the limit of ${HOURLY_GENERATION_LIMIT} quizzes per hour. Try again later.`,
     );
   }
 
-  const sourceBlock = await buildSourceBlock(material.file_url, material.title);
+  const sourceBlock = await pdfSourceBlock(material.file_url, material.title);
 
   const response = await anthropic().messages.parse({
     model: MODEL,
@@ -183,30 +124,35 @@ const generateFromMaterial = async (materialId: string, userId: string) => {
       questions: parsed.questions,
       course_id: material.course.id,
       material_id: material.id,
-      tutor_id: tutorProfile.id,
+      tutor_id: material.course.tutor_id,
+      student_id: isStudent ? userId : null,
       is_published: false,
     },
-    include: { course: { select: { name: true } } },
+    include: setInclude,
   });
 };
 
 /**
- * Role-aware list, mirroring `getMaterials`: a tutor sees all of their own
- * sets including unpublished drafts; a student sees only published sets for
- * courses they have booked into.
+ * Role-aware list.
+ *
+ * - Tutor: the sets they made for their courses, drafts included. Students'
+ *   private quizzes are not shown — they are the student's own revision.
+ * - Student: their own quizzes, plus sets their tutors have published for
+ *   courses they are booked into.
+ * - Admin: everything.
  */
 const getPracticeSets = async (userId: string) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("Unauthorized!");
 
   if (user.role === "TUTOR") {
-    const tutorProfile = await getTutorProfileOrThrow(userId);
+    const tutorProfile = await prisma.tutorProfile.findUnique({
+      where: { user_id: userId },
+    });
+    if (!tutorProfile) throw new Error("Tutor profile not found");
     return prisma.practiceSet.findMany({
-      where: { tutor_id: tutorProfile.id },
-      include: {
-        course: { select: { name: true } },
-        material: { select: { title: true } },
-      },
+      where: { tutor_id: tutorProfile.id, student_id: null },
+      include: setInclude,
       orderBy: { createdAt: "desc" },
     });
   }
@@ -219,30 +165,28 @@ const getPracticeSets = async (userId: string) => {
     const courseIds = [...new Set(bookings.map((b) => b.courseSlot.course_id))];
 
     return prisma.practiceSet.findMany({
-      where: { course_id: { in: courseIds }, is_published: true },
-      include: {
-        course: { select: { name: true } },
-        material: { select: { title: true } },
+      where: {
+        OR: [
+          { student_id: userId },
+          { student_id: null, course_id: { in: courseIds }, is_published: true },
+        ],
       },
+      include: setInclude,
       orderBy: { createdAt: "desc" },
     });
   }
 
   // ADMIN
-  return prisma.practiceSet.findMany({
-    include: {
-      course: { select: { name: true } },
-      material: { select: { title: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  return prisma.practiceSet.findMany({ include: setInclude, orderBy: { createdAt: "desc" } });
 };
 
-const ownedSetOrThrow = async (id: string, userId: string) => {
-  const tutorProfile = await getTutorProfileOrThrow(userId);
+/** A tutor may change only the course sets they made, never a student's quiz. */
+const tutorSetOrThrow = async (id: string, userId: string) => {
+  const tutorProfile = await prisma.tutorProfile.findUnique({ where: { user_id: userId } });
+  if (!tutorProfile) throw new Error("Tutor profile not found");
   const set = await prisma.practiceSet.findUnique({ where: { id } });
   if (!set) throw new Error("Practice set not found");
-  if (set.tutor_id !== tutorProfile.id) {
+  if (set.tutor_id !== tutorProfile.id || set.student_id !== null) {
     throw new Error("Forbidden! Not your practice set");
   }
   return set;
@@ -250,7 +194,7 @@ const ownedSetOrThrow = async (id: string, userId: string) => {
 
 /** Tutor edits the draft — title, the questions themselves, or publish state. */
 const updatePracticeSet = async (id: string, userId: string, payload: unknown) => {
-  await ownedSetOrThrow(id, userId);
+  await tutorSetOrThrow(id, userId);
 
   const data = pick<{ title?: string; questions?: unknown; is_published?: boolean }>(
     payload,
@@ -264,12 +208,20 @@ const updatePracticeSet = async (id: string, userId: string, payload: unknown) =
   return prisma.practiceSet.update({
     where: { id },
     data: data as never,
-    include: { course: { select: { name: true } } },
+    include: setInclude,
   });
 };
 
+/** A tutor deletes their course set; a student deletes their own quiz. */
 const deletePracticeSet = async (id: string, userId: string) => {
-  await ownedSetOrThrow(id, userId);
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (user?.role === "STUDENT") {
+    const set = await prisma.practiceSet.findUnique({ where: { id } });
+    if (!set) throw new Error("Practice set not found");
+    if (set.student_id !== userId) throw new Error("Forbidden! Not your quiz");
+  } else {
+    await tutorSetOrThrow(id, userId);
+  }
   return prisma.practiceSet.delete({ where: { id } });
 };
 

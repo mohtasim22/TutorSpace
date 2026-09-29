@@ -16,6 +16,15 @@ router.get(
   MaterialController.getMaterials,
 );
 
+// AI summary of a PDF material. Generated on first request and stored, so
+// every student in the course reads the same summary. Access is checked in
+// the service: the course's tutor, or a student with a paid booking in it.
+router.post(
+  "/:id/summary",
+  auth(UserRole.student, UserRole.tutor, UserRole.admin),
+  MaterialController.summarise,
+);
+
 // Tutor deletes one of their materials.
 router.delete("/:id", auth(UserRole.tutor), MaterialController.deleteMaterial);
 

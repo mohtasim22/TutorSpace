@@ -9,7 +9,9 @@ const generate = async (req: Request, res: Response, next: NextFunction) => {
     );
     res.status(201).json({
       status: "success",
-      message: "Draft practice questions generated. Review them before publishing.",
+      message: result.student_id
+        ? "Your practice quiz is ready."
+        : "Draft practice questions generated. Review them before publishing.",
       practiceSet: result,
     });
   } catch (e) {

@@ -26,7 +26,7 @@ TutorSpace/
 
 **Coursework** — assignments with file submissions, grading and written feedback; course materials; announcements; a calendar of upcoming sessions; reminder emails before a session and before an assignment is due.
 
-**AI features** — practice questions generated from a tutor's own uploaded course material, and plain-language summaries of a tutor's reviews shown on their public profile. Both are drafted by Claude and gated by a human: a generated practice set is saved unpublished and reaches students only when the tutor publishes it, and review summaries are labelled as AI-written wherever they appear.
+**AI study tools** — for any PDF a tutor uploads to a course, a student with a paid booking in that course can generate a practice quiz and read a summary. Claude reads only that PDF and is told to use nothing else. Quizzes are interactive (multiple choice marked instantly, every answer explained with reference to the material), private to the student, and labelled as not reviewed by the tutor. A summary is generated once per material and shared by the whole course. Tutors can also generate a quiz for the whole course, which stays unpublished until they review and publish it.
 
 **Admin** — manage users (ban/activate), courses, tutor verification and review moderation. Tutors get an earnings view.
 
@@ -162,7 +162,7 @@ Test card `4242 4242 4242 4242`, any future expiry, any CVC.
 
 ## Scheduled jobs
 
-Reminder emails and AI review summaries run from one endpoint rather than an in-process timer, because the API is deployed serverless and has no long-lived process to hold a scheduler.
+Session and assignment reminder emails run from one endpoint rather than an in-process timer, because the API is deployed serverless and has no long-lived process to hold a scheduler.
 
 ```
 GET /api/v1/cron/reminders
@@ -250,4 +250,4 @@ Each backend feature follows the same four-file shape — `*.router.ts` declares
 
 **Live-session access has one definition.** The video call and the whiteboard both call `resolveSessionAccess()`. Two features answering "may this person be here?" separately is how they drift apart.
 
-**AI drafts, humans approve.** Generated practice questions are saved unpublished; review summaries are labelled. The model never puts content in front of a student that a tutor hasn't seen.
+**AI grounded in the course, and honest about it.** Quizzes and summaries are generated only from the tutor's own PDF, every quiz answer carries an explanation pointing back to the material, and anything a tutor hasn't reviewed is labelled as such. Access follows the same idea as live sessions: a paid booking in the course, checked on the server before anything else.

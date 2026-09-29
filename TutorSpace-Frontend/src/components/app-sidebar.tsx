@@ -73,7 +73,7 @@ const STUDENT_navMain = [
       { title: "Calendar", url: "/dashboard/calendar" },
       { title: "Assignments", url: "/dashboard/assignments" },
       { title: "Course Materials", url: "/dashboard/materials" },
-      { title: "Practice Questions", url: "/dashboard/practice" },
+      { title: "Practice Quizzes", url: "/dashboard/practice" },
       { title: "Announcements", url: "/dashboard/announcements" },
       { title: "Slot Bookings", url: "/dashboard/bookings" },
       { title: "History and Reviews", url: "/dashboard/booking-history" },

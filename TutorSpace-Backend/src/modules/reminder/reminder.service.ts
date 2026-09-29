@@ -1,8 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { sendEmail } from "../../lib/email";
 import { contactUserSelect } from "../../lib/select";
-import { refreshStaleSummaries } from "../review/reviewSummary.service";
-import { aiConfigured } from "../../lib/anthropic";
 
 const fmt = (d: Date | string) => new Date(d).toLocaleString();
 
@@ -106,20 +104,7 @@ const runReminders = async () => {
     assignmentReminders++;
   }
 
-  // ---- 3) Refresh stale AI review summaries ----
-  // Runs here rather than on a profile view so a public page never waits on a
-  // model call. Wrapped because a summarisation failure must not stop the run
-  // reporting the reminders it already sent.
-  let reviewSummaries: { considered: number; updated: number; failed: number } | null = null;
-  if (aiConfigured()) {
-    try {
-      reviewSummaries = await refreshStaleSummaries();
-    } catch (error) {
-      console.error("Review summary refresh failed:", error);
-    }
-  }
-
-  return { sessionReminders, assignmentReminders, reviewSummaries };
+  return { sessionReminders, assignmentReminders };
 };
 
 export const ReminderService = { runReminders };

@@ -1,6 +1,5 @@
 import { NextFunction, Request, Response } from "express";
 import { reviewService } from "./review.service";
-import { generateSummaryForTutor, MIN_REVIEWS } from "./reviewSummary.service";
 
 const createReview = async( req: Request, res: Response, next: NextFunction)=>{
     try{
@@ -78,31 +77,6 @@ const getPublicTutorReviews = async( req: Request, res: Response, next: NextFunc
     }
 }
 
-
-
-
-// Regenerate a tutor's review summary immediately instead of waiting for the
-// scheduled pass. Admin-only: it spends money on an external API.
-const refreshReviewSummary = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await generateSummaryForTutor(req.params?.id as string);
-    if (!result) {
-      return res.status(200).json({
-        status: "success",
-        message: `Not enough reviews to summarise (needs at least ${MIN_REVIEWS} with comments)`,
-        summary: null,
-      });
-    }
-    res.status(200).json({
-      status: "success",
-      message: "Review summary regenerated",
-      ...result,
-    });
-  } catch (e) {
-    next(e);
-  }
-};
-
 export const reviewController = {
     createReview,
     getAllReviews,
@@ -110,7 +84,6 @@ export const reviewController = {
     getPublicTutorReviews,
     updateReview,
     deleteReview,
-    refreshReviewSummary,
 }
 // End of review and rating handlers
 

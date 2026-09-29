@@ -156,7 +156,14 @@ export default function StudentBookingsPage({ bookings }: Props) {
 
   const renderActions = (booking: Booking) => (
     <>
-      {booking.payment_status !== "PAID" ? (
+      {/* Pay Now applies only to a live booking that still owes money.
+          Testing `payment_status !== "PAID"` alone was wrong: a REFUNDED
+          booking is also not PAID, so a cancelled and refunded session
+          offered the student a button to pay for it again. */}
+      {booking.booking_status !== "CANCELLED" &&
+      booking.booking_status !== "COMPLETED" &&
+      booking.payment_status !== "PAID" &&
+      booking.payment_status !== "REFUNDED" ? (
         <Button
           size="sm"
           onClick={() => handlePayNow(booking.id)}

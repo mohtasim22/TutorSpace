@@ -12,10 +12,6 @@ router.get("/:id",auth(UserRole.student, UserRole.tutor, UserRole.admin),  revie
 
 router.get("/tutor/:id/public", reviewController.getPublicTutorReviews)
 
-// Admin-only on-demand regeneration. The scheduled pass handles the normal
-// case; this exists so a summary can be produced without waiting for cron.
-router.post("/tutor/:id/summary", auth(UserRole.admin), reviewController.refreshReviewSummary)
-
 router.patch("/:id", auth(UserRole.student, UserRole.admin), validateRequest(updateReviewSchema), reviewController.updateReview)
 router.delete("/:id",auth(UserRole.student, UserRole.admin), reviewController.deleteReview)
 

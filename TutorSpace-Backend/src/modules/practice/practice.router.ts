@@ -6,15 +6,16 @@ import { updatePracticeSetSchema } from "./practice.validation";
 
 const router = express.Router();
 
-// Generate a DRAFT set from one of the tutor's own materials. The result is
-// stored unpublished — publishing is a separate, deliberate action below.
+// Generate a quiz from a PDF material. A student's quiz is private to them; a
+// tutor's set is stored unpublished and published separately below.
 router.post(
   "/generate/:materialId",
-  auth(UserRole.tutor),
+  auth(UserRole.student, UserRole.tutor),
   PracticeController.generate,
 );
 
-// Role-aware list: tutors see their drafts too, students see published only.
+// Role-aware list: tutors see their course sets including drafts; students see
+// their own quizzes plus sets their tutors have published.
 router.get(
   "/",
   auth(UserRole.student, UserRole.tutor, UserRole.admin),
@@ -29,6 +30,11 @@ router.patch(
   PracticeController.updatePracticeSet,
 );
 
-router.delete("/:id", auth(UserRole.tutor), PracticeController.deletePracticeSet);
+// Tutor deletes a course set; student deletes one of their own quizzes.
+router.delete(
+  "/:id",
+  auth(UserRole.student, UserRole.tutor),
+  PracticeController.deletePracticeSet,
+);
 
 export const practiceRouter = router;

@@ -10,7 +10,6 @@ import { getAllCoursesByTutorId } from "@/services/course";
 import { getSlotByTutor } from "@/services/courseSlots";
 import { getPublicTutorReviews, getTutorReviewsById } from "@/services/reviews";
 import BookSlotButton from "@/components/modules/tutors/BookSlotButton";
-import ReviewSummaryCard from "@/components/modules/reviews/ReviewSummaryCard";
 import * as motion from "framer-motion/client";
 import { formatBDT, formatRate, TAKA } from "@/lib/currency"
 
@@ -141,12 +140,6 @@ export default async function TutorDetailsPage({
             </CardContent>
           </Card>
         )}
-
-        {/* Summary of the reviews, above the reviews themselves */}
-        <ReviewSummaryCard
-          summary={tutor.review_summary}
-          reviewCount={tutor.review_summary_count}
-        />
 
         {/* Reviews */}
         <Card>

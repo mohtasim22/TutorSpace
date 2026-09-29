@@ -22,10 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { FolderOpen, Plus, Download, Trash2, Sparkles } from "lucide-react"
-import { createMaterial, deleteMaterial } from "@/services/materials"
+import { FolderOpen, Plus, Download, Trash2, Sparkles, FileText, ChevronUp, RefreshCw } from "lucide-react"
+import { createMaterial, deleteMaterial, summariseMaterial } from "@/services/materials"
 import { generatePracticeSet } from "@/services/practice"
 import { uploadToCloudinary } from "@/lib/uploadToCloudinary"
+import SummaryPanel from "./SummaryPanel"
+import { isPdf, type Material, type MaterialSummary } from "@/components/modules/practice/types"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,13 +41,6 @@ import {
 } from "@/components/ui/alert-dialog"
 
 type Course = { id: string; name: string }
-
-type Material = {
-  id: string
-  title: string
-  file_url: string
-  course?: { name?: string }
-}
 
 interface Props {
   materials: Material[]
@@ -61,6 +56,36 @@ export default function TutorMaterialsPage({ materials, courses }: Props) {
   const [busy, setBusy] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [generatingId, setGeneratingId] = useState<string | null>(null)
+  const [summaries, setSummaries] = useState<Record<string, MaterialSummary>>(() =>
+    Object.fromEntries(materials.filter((m) => m.summary).map((m) => [m.id, m.summary!])),
+  )
+  const [summaryOpenId, setSummaryOpenId] = useState<string | null>(null)
+  const [summarisingId, setSummarisingId] = useState<string | null>(null)
+
+  /**
+   * Show this material's summary, generating it if nobody has asked yet.
+   * With `regenerate`, replace the stored summary — tutor only, which the API
+   * enforces as well.
+   */
+  const handleSummary = async (id: string, regenerate = false) => {
+    if (!regenerate && summaryOpenId === id) return setSummaryOpenId(null)
+    if (!regenerate && summaries[id]) return setSummaryOpenId(id)
+    try {
+      setSummarisingId(id)
+      const res = await summariseMaterial(id, regenerate)
+      if (res?.status === "success" && res.summary) {
+        setSummaries((s) => ({ ...s, [id]: res.summary }))
+        setSummaryOpenId(id)
+        if (regenerate) toast.success("Summary regenerated")
+      } else {
+        toast.error(res?.message || "Could not summarise this material")
+      }
+    } catch {
+      toast.error("Something went wrong")
+    } finally {
+      setSummarisingId(null)
+    }
+  }
 
   const resetForm = () => {
     setTitle("")
@@ -190,6 +215,10 @@ export default function TutorMaterialsPage({ materials, courses }: Props) {
                   type="file"
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Upload PDFs to let students generate summaries and practice
+                  quizzes from them.
+                </p>
               </div>
             </div>
             <DialogFooter>
@@ -210,26 +239,46 @@ export default function TutorMaterialsPage({ materials, courses }: Props) {
       ) : (
         <div className="space-y-2">
           {materials.map((m) => (
-            <div
-              key={m.id}
-              className="rounded-lg border p-4 flex items-center gap-4"
-            >
-              <div className="min-w-0 flex-1">
+            <div key={m.id} className="rounded-lg border p-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+              <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                 <div className="font-medium truncate">{m.title}</div>
                 <Badge variant="outline" className="mt-1">
                   {m.course?.name ?? "Course"}
                 </Badge>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1"
-                disabled={generatingId === m.id}
-                onClick={() => handleGenerate(m.id)}
-              >
-                <Sparkles className="h-4 w-4" />
-                {generatingId === m.id ? "Generating..." : "Practice questions"}
-              </Button>
+              {isPdf(m.file_url) && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    disabled={summarisingId === m.id}
+                    onClick={() => handleSummary(m.id)}
+                  >
+                    {summaryOpenId === m.id ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <FileText className="h-4 w-4" />
+                    )}
+                    {summarisingId === m.id
+                      ? "Summarising..."
+                      : summaryOpenId === m.id
+                        ? "Hide summary"
+                        : "Summary"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    disabled={generatingId === m.id}
+                    onClick={() => handleGenerate(m.id)}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {generatingId === m.id ? "Generating..." : "Quiz for the course"}
+                  </Button>
+                </>
+              )}
               <Button asChild size="sm" variant="outline" className="gap-1">
                 <a href={m.file_url} target="_blank" rel="noopener noreferrer">
                   <Download className="h-4 w-4" />
@@ -266,6 +315,22 @@ export default function TutorMaterialsPage({ materials, courses }: Props) {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+            </div>
+            {summaryOpenId === m.id && summaries[m.id] && (
+              <div className="space-y-2">
+                <SummaryPanel summary={summaries[m.id]} />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1 text-xs"
+                  disabled={summarisingId === m.id}
+                  onClick={() => handleSummary(m.id, true)}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Regenerate summary
+                </Button>
+              </div>
+            )}
             </div>
           ))}
         </div>

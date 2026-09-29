@@ -100,8 +100,10 @@ export default function TutorPracticePage({ sets }: { sets: PracticeSet[] }) {
           Practice Questions
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Generated from your course materials. Read them through and edit the
-          title before publishing — students only see published sets.
+          Sets you generated for your courses. Read them through before
+          publishing: students only see a set once you publish it. Students
+          can also generate their own private quizzes, which are not listed
+          here.
         </p>
       </div>
 
@@ -109,8 +111,8 @@ export default function TutorPracticePage({ sets }: { sets: PracticeSet[] }) {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             No practice sets yet. Open Course Materials and use{" "}
-            <span className="font-medium">Practice questions</span> on any
-            material to generate one.
+            <span className="font-medium">Quiz for the course</span> on any
+            PDF to generate one.
           </CardContent>
         </Card>
       ) : (

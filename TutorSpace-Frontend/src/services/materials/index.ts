@@ -39,6 +39,19 @@ export const createMaterial = async (payload: {
   return res.json()
 }
 
+// AI summary of a PDF material. The API returns the stored summary if there
+// is one and generates it otherwise. `regenerate` is honoured for the
+// course's tutor only.
+export const summariseMaterial = async (id: string, regenerate = false) => {
+  const cookieHeader = await getCookieHeader()
+  const res = await fetch(`${API}/materials/${id}/summary`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookieHeader },
+    body: JSON.stringify({ regenerate }),
+  })
+  return res.json()
+}
+
 // TUTOR: remove a material.
 export const deleteMaterial = async (id: string) => {
   const cookieHeader = await getCookieHeader()
