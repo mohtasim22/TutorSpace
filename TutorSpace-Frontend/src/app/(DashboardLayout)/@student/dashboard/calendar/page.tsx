@@ -21,7 +21,6 @@ export default async function StudentCalendarPage() {
       capacity: b.courseSlot.capacity,
       bookedCount: b.courseSlot._count?.bookings ?? 0,
       courseSlotId: b.courseSlot.id,
-      meetingLink: b.courseSlot.meeting_link,
     }))
 
   return (

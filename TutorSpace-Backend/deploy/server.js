@@ -1378,11 +1378,15 @@ var SLOT_EDITABLE = [
   "date",
   "start_time",
   "end_time",
-  "meeting_link",
-  "session_type",
   "capacity",
   "course_id"
 ];
+var sessionTypeFor = (capacity) => capacity > 1 ? "GROUP" : "ONE_ON_ONE";
+var assertValidCapacity = (capacity) => {
+  if (!Number.isInteger(capacity) || capacity < 1) {
+    throw new Error("Capacity must be a whole number of at least 1");
+  }
+};
 var createSlotIntoDB = async (payload, userId) => {
   const user = await prisma.user.findUnique({
     where: {
@@ -1414,11 +1418,15 @@ var createSlotIntoDB = async (payload, userId) => {
       throw new Error("Invalid course slot duration");
     }
   }
-  if (data.capacity !== void 0 && (!Number.isInteger(data.capacity) || data.capacity < 1)) {
-    throw new Error("Capacity must be a whole number of at least 1");
-  }
+  const capacity = data.capacity ?? 1;
+  assertValidCapacity(capacity);
   const result = await prisma.courseSlot.create({
-    data: { ...data, tutor_id: tutorProfile.id },
+    data: {
+      ...data,
+      capacity,
+      session_type: sessionTypeFor(capacity),
+      tutor_id: tutorProfile.id
+    },
     include: {
       course: true
     }
@@ -1496,14 +1504,27 @@ var updateSlot = async (slotId, payload, userId) => {
       throw new Error("You can only move a slot to your own course");
     }
   }
-  if (data.capacity !== void 0 && (!Number.isInteger(data.capacity) || data.capacity < 1)) {
-    throw new Error("Capacity must be a whole number of at least 1");
+  if (data.capacity !== void 0) {
+    assertValidCapacity(data.capacity);
+  }
+  if (data.capacity !== void 0 && data.capacity !== slot.capacity) {
+    const booked = await prisma.booking.count({
+      where: { course_slot_id: slotId, booking_status: { not: "CANCELLED" } }
+    });
+    if (data.capacity < booked) {
+      throw new Error(
+        `${booked} student${booked === 1 ? " has" : "s have"} already booked this slot, so capacity can't be less than ${booked}`
+      );
+    }
   }
   const result = await prisma.courseSlot.update({
     where: {
       id: slotId
     },
-    data,
+    data: {
+      ...data,
+      ...data.capacity !== void 0 && { session_type: sessionTypeFor(data.capacity) }
+    },
     include: {
       course: true,
       tutor: true
@@ -1636,9 +1657,7 @@ var createSlotSchema = z3.object({
     date: z3.string().min(1, "A date is required"),
     start_time: z3.string().min(1, "A start time is required"),
     end_time: z3.string().min(1, "An end time is required"),
-    session_type: z3.enum(["ONE_ON_ONE", "GROUP"]).optional(),
-    capacity: z3.number().int().min(1, "Capacity must be at least 1").optional(),
-    meeting_link: z3.string().optional().nullable()
+    capacity: z3.number().int().min(1, "Capacity must be at least 1").optional()
   })
 });
 var updateSlotSchema = z3.object({
@@ -1649,9 +1668,7 @@ var updateSlotSchema = z3.object({
     date: z3.string().min(1).optional(),
     start_time: z3.string().min(1).optional(),
     end_time: z3.string().min(1).optional(),
-    session_type: z3.enum(["ONE_ON_ONE", "GROUP"]).optional(),
-    capacity: z3.number().int().min(1, "Capacity must be at least 1").optional(),
-    meeting_link: z3.string().optional().nullable()
+    capacity: z3.number().int().min(1, "Capacity must be at least 1").optional()
   })
 });
 

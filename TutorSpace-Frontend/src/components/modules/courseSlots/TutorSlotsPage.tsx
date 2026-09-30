@@ -72,8 +72,8 @@ type Slot = {
   start_time: string
   end_time: string
   date: string
-  meeting_link: string
   course_id: string
+  /** Set by the server from capacity: 1 seat = one-to-one, more = group. */
   session_type: "ONE_ON_ONE" | "GROUP"
   capacity: number
   course: { name: string }
@@ -85,9 +85,7 @@ type SlotFormValues = {
   date: string
   start_time: string
   end_time: string
-  meeting_link: string
   course_id: string
-  session_type: "ONE_ON_ONE" | "GROUP"
   capacity: number
 }
 
@@ -109,9 +107,7 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
       date: "",
       start_time: "",
       end_time: "",
-      meeting_link: "",
       course_id: "",
-      session_type: "ONE_ON_ONE",
       capacity: 1,
     },
   })
@@ -123,9 +119,7 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
       date: "",
       start_time: "",
       end_time: "",
-      meeting_link: "",
       course_id: "",
-      session_type: "ONE_ON_ONE",
       capacity: 1,
     },
   })
@@ -140,15 +134,12 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
   }
 
-  // A one-on-one slot always has exactly one seat; a group slot uses the number
-  // the tutor typed (at least 1). Also coerce capacity to a real number so the
-  // backend/Prisma receives an Int, not a string from the text input.
+  // Capacity is the only choice the tutor makes: the server derives the session
+  // type from it (1 seat = one-to-one, more = group). Coerce it to a whole
+  // number, since a number input still hands back a string.
   const normalizeSlot = (values: SlotFormValues) => ({
     ...values,
-    capacity:
-      values.session_type === "ONE_ON_ONE"
-        ? 1
-        : Math.max(1, Number(values.capacity) || 1),
+    capacity: Math.max(1, Math.floor(Number(values.capacity)) || 1),
   })
 
   const handleCreate = async (values: SlotFormValues) => {
@@ -218,9 +209,7 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
       date: toDateString(slot.date),
       start_time: toTimeString(slot.start_time),
       end_time: toTimeString(slot.end_time),
-      meeting_link: slot.meeting_link,
       course_id: slot.course_id,
-      session_type: slot.session_type ?? "ONE_ON_ONE",
       capacity: slot.capacity ?? 1,
     })
   }
@@ -292,52 +281,32 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
           )}
         />
 
-        {/* Session Type + Capacity */}
-        <div className="grid grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="session_type"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Session Type</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="ONE_ON_ONE">One-on-one</SelectItem>
-                    <SelectItem value="GROUP">Group / discussion</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          {form.watch("session_type") === "GROUP" && (
-            <FormField
-              control={form.control}
-              name="capacity"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Capacity (students)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      value={field.value ?? 1}
-                      type="number"
-                      min={2}
-                      placeholder="e.g. 10"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        {/* Capacity — the session type follows from it */}
+        <FormField
+          control={form.control}
+          name="capacity"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Capacity (students)</FormLabel>
+              <FormControl>
+                <Input
+                  {...field}
+                  value={field.value ?? 1}
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="e.g. 1"
+                />
+              </FormControl>
+              <p className="text-xs text-muted-foreground">
+                {Number(form.watch("capacity")) > 1
+                  ? "Group session: several students join the same class."
+                  : "One-to-one session: one student only."}
+              </p>
+              <FormMessage />
+            </FormItem>
           )}
-        </div>
+        />
 
         {/* Date */}
         <FormField
@@ -383,21 +352,6 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
             )}
           />
         </div>
-
-        {/* Meeting Link */}
-        <FormField
-          control={form.control}
-          name="meeting_link"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Meeting Link</FormLabel>
-              <FormControl>
-                <Input {...field} value={field.value ?? ""} placeholder="https://meet.google.com/..." />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
 
         <Button type="submit" className="w-full" disabled={loading}>
           {loading ? "Saving..." : submitLabel}
@@ -576,10 +530,7 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
                         asChild
                         className="relative group overflow-hidden bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.2)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)] transition-all duration-300 gap-2 h-8 px-4"
                       >
-                        <a href={slot.meeting_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
+                        <a href={`/dashboard/call/${slot.id}`}>
                           <Link2 className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
                           <span className="relative z-10 whitespace-nowrap">Join Meeting</span>
                         </a>
@@ -636,23 +587,17 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
                     })}
                   </Field>
 
-                  {slot.meeting_link && (
-                    <Button
-                      size="sm"
-                      asChild
-                      variant="outline"
-                      className="w-full gap-2"
-                    >
-                      <a
-                        href={slot.meeting_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <Link2 className="h-4 w-4 shrink-0" />
-                        Join Meeting
-                      </a>
-                    </Button>
-                  )}
+                  <Button
+                    size="sm"
+                    asChild
+                    variant="outline"
+                    className="w-full gap-2"
+                  >
+                    <a href={`/dashboard/call/${slot.id}`}>
+                      <Link2 className="h-4 w-4 shrink-0" />
+                      Join Meeting
+                    </a>
+                  </Button>
 
                   <CardActions>{renderActions(slot)}</CardActions>
                 </MobileCard>

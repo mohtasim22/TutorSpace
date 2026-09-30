@@ -25,7 +25,6 @@ export type CalendarEvent = {
   capacity?: number // total seats on the slot
   bookedCount?: number // how many students have booked it
   courseSlotId?: string // the slot id — used to open the in-app video room
-  meetingLink?: string
 }
 
 interface Props {

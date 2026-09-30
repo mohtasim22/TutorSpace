@@ -3,17 +3,30 @@ import { pick } from "../../lib/pick";
 
 // Fields a tutor may set on a slot. `tutor_id` is taken from the session, and
 // the derived/managed columns are never client-writable.
+//
+// `session_type` is deliberately absent: it is derived from `capacity` (see
+// sessionTypeFor), so a slot can never claim to be one-to-one while holding
+// five seats. `meeting_link` is absent too — the call is in-app, reached
+// through the slot's id, and no external link is stored.
 const SLOT_EDITABLE = [
     "name",
     "description",
     "date",
     "start_time",
     "end_time",
-    "meeting_link",
-    "session_type",
     "capacity",
     "course_id",
 ] as const;
+
+/** One seat is a one-to-one session; more than one is a group session. */
+const sessionTypeFor = (capacity: number) =>
+    capacity > 1 ? ("GROUP" as const) : ("ONE_ON_ONE" as const);
+
+const assertValidCapacity = (capacity: unknown) => {
+    if (!Number.isInteger(capacity) || (capacity as number) < 1) {
+        throw new Error("Capacity must be a whole number of at least 1");
+    }
+};
 
 const createSlotIntoDB = async (payload: any, userId: string) => {
     const user = await prisma.user.findUnique({
@@ -58,12 +71,16 @@ const createSlotIntoDB = async (payload: any, userId: string) => {
         }
     }
 
-    if (data.capacity !== undefined && (!Number.isInteger(data.capacity) || data.capacity < 1)) {
-        throw new Error("Capacity must be a whole number of at least 1");
-    }
+    const capacity = data.capacity ?? 1;
+    assertValidCapacity(capacity);
 
     const result = await prisma.courseSlot.create({
-        data: { ...data, tutor_id: tutorProfile.id } as any,
+        data: {
+            ...data,
+            capacity,
+            session_type: sessionTypeFor(capacity),
+            tutor_id: tutorProfile.id,
+        } as any,
         include: {
             course: true
         }
@@ -130,7 +147,7 @@ const updateSlot = async (slotId: string, payload: Partial<{
     date: Date;
     start_time: Date;
     end_time: Date;
-    meeting_link: string;
+    capacity: number;
     course_id: string;
 }>, userId: string) => {
 
@@ -165,15 +182,33 @@ const updateSlot = async (slotId: string, payload: Partial<{
         }
     }
 
-    if (data.capacity !== undefined && (!Number.isInteger(data.capacity) || data.capacity < 1)) {
-        throw new Error("Capacity must be a whole number of at least 1");
+    if (data.capacity !== undefined) {
+        assertValidCapacity(data.capacity);
+    }
+
+    // Only a real change of capacity is checked: the edit form always sends
+    // the current value, and renaming a slot must not fail because of it.
+    if (data.capacity !== undefined && data.capacity !== slot.capacity) {
+        // Don't let an edit strand students who already hold a seat: a slot
+        // with three active bookings cannot be cut down to one seat.
+        const booked = await prisma.booking.count({
+            where: { course_slot_id: slotId, booking_status: { not: "CANCELLED" } },
+        });
+        if (data.capacity < booked) {
+            throw new Error(
+                `${booked} student${booked === 1 ? " has" : "s have"} already booked this slot, so capacity can't be less than ${booked}`,
+            );
+        }
     }
 
     const result = await prisma.courseSlot.update({
         where: {
             id: slotId
         },
-        data: data as any,
+        data: {
+            ...data,
+            ...(data.capacity !== undefined && { session_type: sessionTypeFor(data.capacity) }),
+        } as any,
         include: {
             course: true,
             tutor: true,

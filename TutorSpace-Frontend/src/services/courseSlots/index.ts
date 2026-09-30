@@ -20,9 +20,7 @@ export const createSlot = async (payload: {
   date: string
   start_time: string
   end_time: string
-  meeting_link: string
   course_id: string
-  session_type: "ONE_ON_ONE" | "GROUP"
   capacity: number
 }) => {
   const cookieHeader = await getCookieHeader()
@@ -30,12 +28,9 @@ export const createSlot = async (payload: {
   const formattedPayload = {
     name: payload.name,
     description: payload.description,
-    meeting_link: payload.meeting_link,
     course_id: payload.course_id,
-    // Carry the session type and seat count through to the backend. Omitting
-    // these was silently forcing every slot to the schema defaults
-    // (ONE_ON_ONE, capacity 1).
-    session_type: payload.session_type,
+    // The server derives the session type from this: 1 seat is one-to-one,
+    // more is a group session.
     capacity: payload.capacity,
     date: new Date(payload.date).toISOString(),
     start_time: formatDateTime(payload.date, payload.start_time),
@@ -59,9 +54,7 @@ export const updateSlot = async (slotId: string, payload: Partial<{
   date: string
   start_time: string
   end_time: string
-  meeting_link: string
   course_id: string
-  session_type: "ONE_ON_ONE" | "GROUP"
   capacity: number
 }>) => {
   const cookieHeader = await getCookieHeader()
@@ -69,9 +62,7 @@ export const updateSlot = async (slotId: string, payload: Partial<{
   const formattedPayload = {
     ...(payload.name && { name: payload.name }),
     ...(payload.description && { description: payload.description }),
-    ...(payload.meeting_link && { meeting_link: payload.meeting_link }),
     ...(payload.course_id && { course_id: payload.course_id }),
-    ...(payload.session_type && { session_type: payload.session_type }),
     // Use != null so a valid capacity of 0 wouldn't be dropped (defensive;
     // capacity is always >= 1 in practice).
     ...(payload.capacity != null && { capacity: payload.capacity }),

@@ -59,7 +59,6 @@ type Booking = {
     start_time: string
     end_time: string
     date: string
-    meeting_link: string
   }
 }
 

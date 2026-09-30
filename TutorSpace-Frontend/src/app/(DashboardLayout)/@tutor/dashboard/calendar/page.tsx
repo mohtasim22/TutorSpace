@@ -27,7 +27,6 @@ export default async function TutorCalendarPage() {
       capacity: s.capacity,
       bookedCount: s._count?.bookings ?? 0,
       courseSlotId: s.id,
-      meetingLink: s.meeting_link,
     }))
 
   return (

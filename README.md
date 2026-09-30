@@ -18,7 +18,7 @@ TutorSpace/
 
 **Accounts & roles** — email/password and Google sign-in via Better Auth, with three roles: student, tutor, admin. Tutors are verified by an admin before appearing as verified.
 
-**Discovery & booking** — browse tutors and published session slots, filter by subject and price. Slots are either `ONE_ON_ONE` or `GROUP` with a seat capacity that is enforced on the server; cancelled bookings release their seat.
+**Discovery & booking** — browse tutors and published session slots, filter by subject and price. A tutor sets only a slot's seat capacity; the server derives the session type from it (1 seat is `ONE_ON_ONE`, more is `GROUP`), so the two can never contradict each other. Capacity is enforced on the server, cancelled bookings release their seat, and an edit cannot reduce capacity below the seats already booked.
 
 **Payments** — Stripe Checkout in BDT, confirmed by a signature-verified webhook. Students can cancel: more than 24 hours before the session a paid booking is refunded in full through Stripe, inside that window it is not. A cancellation by the *tutor* is always refunded regardless of timing.
 
