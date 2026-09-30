@@ -124,6 +124,7 @@ Seeded accounts use the domain `tutorspace.demo` and the password `password123` 
 | `API_BASE` | origin of the API, no path. Baked into the rewrite at **build time**, so changing it requires a rebuild |
 | `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name |
 | `NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | must be an **unsigned** upload preset |
+| `NEXT_PUBLIC_TLDRAW_LICENSE_KEY` | required on any deployed domain: without it tldraw shows the whiteboard, then hides it after 5 seconds. Not needed on localhost. Keys are domain-bound and public by design ([trial or hobby licence](https://tldraw.dev/sdk-features/license-key)) |
 
 Environment files are git-ignored and must be created locally. Never commit secrets — the API key is server-side only and must never appear in a `NEXT_PUBLIC_*` variable, which is shipped to the browser.
 
