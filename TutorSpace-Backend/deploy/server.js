@@ -1387,6 +1387,17 @@ var assertValidCapacity = (capacity) => {
     throw new Error("Capacity must be a whole number of at least 1");
   }
 };
+var hasStarted = (slot) => new Date(slot.start_time).getTime() <= Date.now();
+var assertNotStarted = (slot, action) => {
+  if (hasStarted(slot)) {
+    throw new Error(`This class has already started, so it can't be ${action === "edit" ? "edited" : "deleted"}`);
+  }
+};
+var assertStartsInFuture = (startTime) => {
+  if (new Date(startTime).getTime() <= Date.now()) {
+    throw new Error("A class can't be scheduled in the past");
+  }
+};
 var createSlotIntoDB = async (payload, userId) => {
   const user = await prisma.user.findUnique({
     where: {
@@ -1418,6 +1429,7 @@ var createSlotIntoDB = async (payload, userId) => {
       throw new Error("Invalid course slot duration");
     }
   }
+  if (data.start_time) assertStartsInFuture(data.start_time);
   const capacity = data.capacity ?? 1;
   assertValidCapacity(capacity);
   const result = await prisma.courseSlot.create({
@@ -1497,7 +1509,17 @@ var updateSlot = async (slotId, payload, userId) => {
   if (slot.tutor_id !== tutorProfile.id) {
     throw new Error("Unauthorized! You can only update your own slots");
   }
-  const data = pick(payload, SLOT_EDITABLE);
+  assertNotStarted(slot, "edit");
+  const data = pick(
+    payload,
+    SLOT_EDITABLE
+  );
+  if (data.start_time) assertStartsInFuture(data.start_time);
+  const newStart = new Date(data.start_time ?? slot.start_time).getTime();
+  const newEnd = new Date(data.end_time ?? slot.end_time).getTime();
+  if (newEnd <= newStart) {
+    throw new Error("Invalid course slot duration");
+  }
   if (data.course_id && data.course_id !== slot.course_id) {
     const course = await prisma.course.findUnique({ where: { id: data.course_id } });
     if (!course || course.tutor_id !== tutorProfile.id) {
@@ -1547,6 +1569,23 @@ var deleteSlot = async (slotId, userId) => {
   }
   if (slot.tutor_id !== tutorProfile.id) {
     throw new Error("Unauthorized! You can only delete your own slots");
+  }
+  assertNotStarted(slot, "delete");
+  const active = await prisma.booking.count({
+    where: { course_slot_id: slotId, booking_status: { not: "CANCELLED" } }
+  });
+  if (active > 0) {
+    throw new Error(
+      `${active} student${active === 1 ? " has" : "s have"} booked this class. Cancel ${active === 1 ? "that booking" : "those bookings"} first (paid students are refunded), then delete the slot.`
+    );
+  }
+  const withPayments = await prisma.booking.count({
+    where: { course_slot_id: slotId, transaction_id: { not: null } }
+  });
+  if (withPayments > 0) {
+    throw new Error(
+      "This class has payment records (including refunds), so it is kept for the record and can't be deleted"
+    );
   }
   const result = await prisma.courseSlot.delete({
     where: {

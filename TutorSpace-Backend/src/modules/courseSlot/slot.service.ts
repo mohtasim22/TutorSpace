@@ -28,6 +28,27 @@ const assertValidCapacity = (capacity: unknown) => {
     }
 };
 
+/**
+ * A slot is locked once it has started. From then on it is a record of a
+ * lesson that happened (or is happening), not a plan: changing its time or
+ * seats would rewrite that record, and deleting it would cascade to its
+ * bookings, their payment records and the reviews written about them.
+ */
+const hasStarted = (slot: { start_time: Date }) =>
+    new Date(slot.start_time).getTime() <= Date.now();
+
+const assertNotStarted = (slot: { start_time: Date }, action: "edit" | "delete") => {
+    if (hasStarted(slot)) {
+        throw new Error(`This class has already started, so it can't be ${action === "edit" ? "edited" : "deleted"}`);
+    }
+};
+
+const assertStartsInFuture = (startTime: string | Date) => {
+    if (new Date(startTime).getTime() <= Date.now()) {
+        throw new Error("A class can't be scheduled in the past");
+    }
+};
+
 const createSlotIntoDB = async (payload: any, userId: string) => {
     const user = await prisma.user.findUnique({
         where: {
@@ -70,6 +91,7 @@ const createSlotIntoDB = async (payload: any, userId: string) => {
             throw new Error("Invalid course slot duration");
         }
     }
+    if (data.start_time) assertStartsInFuture(data.start_time);
 
     const capacity = data.capacity ?? 1;
     assertValidCapacity(capacity);
@@ -171,7 +193,22 @@ const updateSlot = async (slotId: string, payload: Partial<{
         throw new Error("Unauthorized! You can only update your own slots");
     }
 
-    const data = pick<{ course_id?: string; capacity?: number }>(payload, SLOT_EDITABLE);
+    assertNotStarted(slot, "edit");
+
+    const data = pick<{ course_id?: string; capacity?: number; start_time?: string; end_time?: string }>(
+        payload,
+        SLOT_EDITABLE,
+    );
+
+    // Without these, the lock above could be dodged by editing a future slot's
+    // date into the past, and an edit could produce a class that ends before
+    // it starts.
+    if (data.start_time) assertStartsInFuture(data.start_time);
+    const newStart = new Date(data.start_time ?? slot.start_time).getTime();
+    const newEnd = new Date(data.end_time ?? slot.end_time).getTime();
+    if (newEnd <= newStart) {
+        throw new Error("Invalid course slot duration");
+    }
 
     // Re-pointing a slot at a different course is allowed only if that course
     // is also the tutor's own.
@@ -237,6 +274,33 @@ const deleteSlot = async (slotId: string, userId: string) => {
 
     if (slot.tutor_id !== tutorProfile.id) {
         throw new Error("Unauthorized! You can only delete your own slots");
+    }
+
+    assertNotStarted(slot, "delete");
+
+    // Deleting a slot deletes its bookings with it (cascade), which would
+    // silently drop students who hold a seat — including paid ones, with no
+    // refund. The tutor cancels those bookings first; cancelling refunds a
+    // paid student and frees the slot to be deleted.
+    const active = await prisma.booking.count({
+        where: { course_slot_id: slotId, booking_status: { not: "CANCELLED" } },
+    });
+    if (active > 0) {
+        throw new Error(
+            `${active} student${active === 1 ? " has" : "s have"} booked this class. Cancel ${active === 1 ? "that booking" : "those bookings"} first (paid students are refunded), then delete the slot.`,
+        );
+    }
+
+    // Even cancelled bookings can carry money history: the Stripe payment and
+    // the refund issued for it. Deleting the slot would cascade to them and
+    // erase the record that the money went back, so such a slot is kept.
+    const withPayments = await prisma.booking.count({
+        where: { course_slot_id: slotId, transaction_id: { not: null } },
+    });
+    if (withPayments > 0) {
+        throw new Error(
+            "This class has payment records (including refunds), so it is kept for the record and can't be deleted",
+        );
     }
 
     const result = await prisma.courseSlot.delete({

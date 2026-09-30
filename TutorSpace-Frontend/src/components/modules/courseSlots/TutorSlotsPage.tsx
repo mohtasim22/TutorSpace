@@ -94,6 +94,24 @@ interface Props {
   courses: Course[]
 }
 
+/** Where a slot is in time. Anything but "upcoming" is locked for editing. */
+const slotStatus = (slot: Pick<Slot, "start_time" | "end_time">) => {
+  const now = Date.now()
+  if (new Date(slot.start_time).getTime() > now) return "upcoming" as const
+  if (new Date(slot.end_time).getTime() > now) return "in-progress" as const
+  return "ended" as const
+}
+
+function StatusBadge({ slot }: { slot: Slot }) {
+  const status = slotStatus(slot)
+  if (status === "upcoming") return null
+  return status === "in-progress" ? (
+    <Badge className="text-[10px]">In progress</Badge>
+  ) : (
+    <Badge variant="secondary" className="text-[10px]">Ended</Badge>
+  )
+}
+
 export default function TutorSlotsPage({ initialSlots, courses }: Props) {
   const [slots, setSlots] = useState<Slot[]>(initialSlots)
   const [openCreate, setOpenCreate] = useState(false)
@@ -362,24 +380,34 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
 
   // Shared by the table and the mobile cards. One definition, so the Edit
   // dialog stays bound to a single `editSlot` state rather than two copies.
-  const renderActions = (slot: Slot) => (
-    <>
+  //
+  // Once a class has started, Edit and Delete are dimmed: it is now a record
+  // of a lesson, not a plan. The server enforces the same rule, so this only
+  // saves the tutor a refused request. The wrapping <span> carries the
+  // explanation because a disabled button does not show a tooltip.
+  const renderActions = (slot: Slot) => {
+    const locked = slotStatus(slot) !== "upcoming"
+    const lockReason = "This class has already started, so it can't be changed."
+    return (
                       <div className="flex items-center gap-2">
                         {/* Edit */}
                         <Dialog
                           open={editSlot?.id === slot.id}
                           onOpenChange={(open) => !open && setEditSlot(null)}
                         >
+                          <span title={locked ? lockReason : undefined}>
                           <DialogTrigger asChild>
                             <Button
                               size="sm"
                               variant="outline"
+                              disabled={locked}
                               onClick={() => openEditDialog(slot)}
                             >
                               <Pencil className="h-4 w-4 mr-1" />
                               Edit
                             </Button>
                           </DialogTrigger>
+                          </span>
                           <DialogContent className="max-w-lg">
                             <DialogHeader>
                               <DialogTitle>Edit Slot</DialogTitle>
@@ -397,17 +425,19 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
 
                         {/* Delete */}
                         <AlertDialog>
+                          <span title={locked ? lockReason : undefined}>
                           <AlertDialogTrigger asChild>
                             <Button
                               size="sm"
                               variant="outline"
                               className="text-red-600 border-red-600 hover:bg-red-50"
-                              disabled={loading}
+                              disabled={loading || locked}
                             >
                               <Trash2 className="h-4 w-4 mr-1" />
                               Delete
                             </Button>
                           </AlertDialogTrigger>
+                          </span>
                           <AlertDialogContent>
                             <AlertDialogHeader>
                               <AlertDialogTitle>Delete Slot</AlertDialogTitle>
@@ -427,8 +457,8 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
                           </AlertDialogContent>
                         </AlertDialog>
                       </div>
-                    </>
-  )
+    )
+  }
 
   return (
     <div className="max-w-7xl mx-auto py-6 sm:py-10 px-0 sm:px-4 space-y-6">
@@ -470,7 +500,6 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
                 <TableRow>
                   <TableHead>Slot</TableHead>
                   <TableHead>Course</TableHead>
-                  <TableHead>Type</TableHead>
                   <TableHead>
                     <div className="flex items-center gap-1">
                       <Calendar className="h-4 w-4" />
@@ -483,7 +512,7 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
                       Time
                     </div>
                   </TableHead>
-                  <TableHead>Meeting Link</TableHead>
+                  <TableHead>Class</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -491,20 +520,16 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
                 {slots.map((slot) => (
                   <TableRow key={slot.id}>
                     <TableCell>
-                      <div className="font-medium">{slot.name}</div>
+                      <div className="font-medium flex items-center gap-2">
+                        {slot.name}
+                        <StatusBadge slot={slot} />
+                      </div>
                       <div className="text-xs text-muted-foreground">{slot.description}</div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">
                         {slot.course?.name ?? slot.course_id}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {slot.session_type === "GROUP" ? (
-                        <Badge variant="secondary">Group · {slot.capacity}</Badge>
-                      ) : (
-                        <Badge variant="outline">1-on-1</Badge>
-                      )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                       {new Date(slot.date).toLocaleDateString(undefined, {
@@ -559,13 +584,7 @@ export default function TutorSlotsPage({ initialSlots, courses }: Props) {
                     <Badge variant="outline">
                       {slot.course?.name ?? slot.course_id}
                     </Badge>
-                    {slot.session_type === "GROUP" ? (
-                      <Badge variant="secondary">
-                        Group {"\u00B7"} {slot.capacity}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">1-on-1</Badge>
-                    )}
+                    <StatusBadge slot={slot} />
                   </div>
 
                   <Field label="Date">
